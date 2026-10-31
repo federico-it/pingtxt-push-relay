@@ -1,0 +1,27 @@
+# Example: docker compose up -d
+# Put the Firebase service account key next to this file as firebase.json
+# (never commit it) and set RELAY_SECRET in .env:
+#   echo "RELAY_SECRET=$(openssl rand -base64 48)" > .env
+services:
+  push-relay:
+    image: ghcr.io/federico-it/pingtxt-push-relay:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      RELAY_SECRET: ${RELAY_SECRET:?set RELAY_SECRET in .env}
+      FCM_CREDENTIALS_FILE: /run/secrets/firebase.json
+      # Behind Traefik/Caddy/nginx (Coolify): read the client IP from
+      # X-Forwarded-For for the per-IP limits.
+      RELAY_TRUST_PROXY: "false"
+    secrets:
+      - firebase.json
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+
+secrets:
+  firebase.json:
+    file: ./firebase.json
