@@ -21,10 +21,10 @@ hub (first start of the feature)
   POST /v1/hubs                          → hub_id + hub_token   (saved in hub settings)
 
 app (after sign-in to a hub, and whenever FCM rotates its token)
-  GET  {hub}/api/push/config             → relay_url, hub_id    (hub API)
+  GET  {hub}/api/mobile/config             → relay_url, hub_id    (hub API)
   Firebase SDK                           → fcm_token
   POST {relay}/v1/devices {hub_id, fcm_token} → device handle "prd_…"
-  POST {hub}/api/push/devices {device, name}                    (hub API)
+  POST {hub}/api/mobile/devices {device, name}                  (hub API)
 
 hub (alert: monitor down / up, incident, …)
   POST {relay}/v1/push  Bearer hub_token  {devices: [...], title, body, …}
@@ -145,9 +145,10 @@ Firebase credentials.
 | per phone | 30/minute, bursts of 10 |
 | per IP | 20 registrations + enrollments/minute, bursts of 10 |
 
-## Hub side (pingtxt) — proposal
+## Hub side (pingtxt)
 
-What the hub needs, to build in the pingtxt repo:
+Built in pingtxt (migration 23, `internal/hub/apppush.go`). The routes are
+under `/api/mobile/` because `/api/push/{token}` is taken by heartbeat monitors.
 
 **Settings** (Settings → Mobile app, admin only, stored in the DB like the
 other settings):
@@ -158,24 +159,25 @@ other settings):
   on, or by a "Register" button. "Test" calls `GET /v1/hubs/me`.
 - on/off switch.
 
-**Table** `push_devices` (next migration): `id`, `user_id`, `handle`,
-`name` ("Federico's iPhone"), `created_at`, `last_seen_at`. Unique on
-`(user_id, handle)`. Deleted with the user, with the OAuth sign-in the app
-used (disconnect in "connected apps"), and on a `gone` result.
+**Table** `push_devices` (migration 23): `id`, `user_id`, `grant_id`,
+`handle`, `name` ("Federico's iPhone"), `created_at`, `last_seen_at`. Unique on
+`grant_id`: one handle per OAuth sign-in, a new one replaces it. Deleted with
+the user, with the OAuth sign-in the app used (disconnect in "connected
+apps", sign-out, expiry), and on a `gone` result.
 
 **API for the app** (must work with the app's `pma_` OAuth tokens, also for
 read-only users):
 
-- `GET /api/push/config` → `{"enabled": true, "relay_url": "…", "hub_id": "…"}`
-- `POST /api/push/devices` `{"device": "prd_…", "name": "iPhone"}` → upsert
-  for the current user, returns `{id}`. The app sends it after every
-  enrollment; the hub can keep only the latest handle per sign-in.
-- `DELETE /api/push/devices/{id}` (app sign-out also revokes it).
-- `GET /api/push/devices` → the user's devices (also listed in web settings).
+- `GET /api/mobile/config` → `{"enabled": true, "relay_url": "…", "hub_id": "…"}`
+- `POST /api/mobile/devices` `{"device": "prd_…", "name": "iPhone"}` → upsert
+  for the current sign-in, returns `{id}`. Only OAuth access tokens; `409`
+  when push is off on the hub. The app sends it after every enrollment.
+- `DELETE /api/mobile/devices/{id}` (app sign-out also revokes it).
+- `GET /api/mobile/devices` → the user's devices (also listed in web settings).
 
-**Sending**: a new notifier type `app` ("Pingtxt app") so the existing
-routing, escalation and maintenance rules apply. Config: which users (default:
-all users). For each alert the hub collects the handles of those users, sends
+**Sending**: notifier type `app` ("pingtxt app (push)") so the existing
+routing, escalation and maintenance rules apply. Config `users`: emails, comma
+separated (empty: all users). For each alert the hub collects the handles of those users, sends
 batches of up to 100, and handles the results (`gone` → delete). Suggested
 message:
 
@@ -194,10 +196,10 @@ not stored there. Admins who do not want that can turn the feature off.
    project, push capability, ask for notification permission (with
    *time-sensitive* entitlement for down alerts).
 2. After sign-in, and in `messaging(_:didReceiveRegistrationToken:)`:
-   `GET {hub}/api/push/config` → if enabled, `POST {relay_url}/v1/devices`
-   with `hub_id` and the FCM token → `POST {hub}/api/push/devices`.
+   `GET {hub}/api/mobile/config` → if enabled, `POST {relay_url}/v1/devices`
+   with `hub_id` and the FCM token → `POST {hub}/api/mobile/devices`.
    Store the hub device id in the Keychain.
-3. Sign-out: `DELETE {hub}/api/push/devices/{id}`, then revoke the OAuth
+3. Sign-out: `DELETE {hub}/api/mobile/devices/{id}`, then revoke the OAuth
    token. With several hubs signed in, the same FCM token gets one handle per
    hub.
 4. Tapping a notification: read `data.type` / `data.monitor_id` and open the
