@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: Dockerfile uses the Go version of go.mod
+        run: |
+          want=$(awk '$1 == "go" { print $2 }' go.mod)
+          got=$(sed -n 's/^ARG GO_VERSION=//p' Dockerfile)
+          [ "$got" = "$want" ] || { echo "::error file=Dockerfile::ARG GO_VERSION=$got, go.mod says $want"; exit 1; }
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          load: true
+          tags: pingtxt-push-relay:ci
+      - name: Container starts and is healthy
+        run: |
+          docker run -d --name relay -p 8080:8080 -e RELAY_SECRET="$(openssl rand -base64 48)" pingtxt-push-relay:ci
+          for i in $(seq 1 30); do
+            curl -fsS localhost:8080/healthz && exit 0
+            sleep 1
+          done
+          docker logs relay
+          exit 1

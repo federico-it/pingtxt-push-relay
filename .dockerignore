@@ -1,0 +1,6 @@
+.git
+.github
+docs
+*.md
+*.json
+!go.mod
