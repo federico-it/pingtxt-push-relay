@@ -65,6 +65,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/hubs/me", s.hubMe)
 	mux.HandleFunc("POST /v1/devices", s.enrollDevice)
 	mux.HandleFunc("POST /v1/push", s.push)
+	mux.HandleFunc("POST /v1/live-activity", s.liveActivity)
 	return s.logRequests(mux)
 }
 
@@ -167,6 +168,9 @@ const (
 	StatusRateLimited = "rate_limited" // too many pushes to this phone
 	StatusRejected    = "rejected"     // FCM refused the message
 	StatusFailed      = "failed"       // temporary, can be retried
+	// Live Activity only: the device handle is not valid (delete the
+	// device), while gone there means the activity token is.
+	StatusDeviceGone = "device_gone"
 )
 
 type pushResult struct {
@@ -255,6 +259,209 @@ func (s *Server) sendOne(ctx context.Context, hub, handle string, req *pushReque
 		s.log.Warn("fcm send failed", "hub", hub, "err", err)
 	}
 	return res
+}
+
+// Limits of a Live Activity request. APNs allows 4 KB per payload (5 KB for
+// a start), the state and attributes leave room for the rest.
+const (
+	maxLAState      = 2048
+	maxLAAttributes = 1024
+	maxLAToken      = 1024
+	maxLAType       = 100
+)
+
+type liveActivityTarget struct {
+	Device string `json:"device"` // the phone's handle (prd_...)
+	Token  string `json:"token"`  // activity push token or push-to-start token, hex
+}
+
+type liveActivityRequest struct {
+	Event          string               `json:"event"` // start, update, end
+	Targets        []liveActivityTarget `json:"targets"`
+	ContentState   json.RawMessage      `json:"content_state"`
+	AttributesType string               `json:"attributes_type"`
+	Attributes     json.RawMessage      `json:"attributes"`
+	Timestamp      int64                `json:"timestamp"`      // unix s, 0 = now
+	StaleDate      int64                `json:"stale_date"`     // unix s, 0 = none
+	DismissalDate  int64                `json:"dismissal_date"` // unix s, end only
+	RelevanceScore float64              `json:"relevance_score"`
+	Title          string               `json:"title"` // optional alert
+	Body           string               `json:"body"`
+	Sound          bool                 `json:"sound"`
+	Priority       string               `json:"priority"` // high (default) or normal
+	TTL            int                  `json:"ttl"`
+}
+
+// POST /v1/live-activity: a hub starts, updates or ends the Live Activity of
+// some of its phones. Each target pairs the phone's handle (FCM needs the
+// phone's token too) with the ActivityKit token of the activity.
+func (s *Server) liveActivity(w http.ResponseWriter, r *http.Request) {
+	hub, ok := s.authHub(w, r)
+	if !ok {
+		return
+	}
+	if s.sender == nil {
+		writeError(w, http.StatusServiceUnavailable, "fcm_not_configured", "the relay has no Firebase credentials")
+		return
+	}
+	var req liveActivityRequest
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if msg := validateLiveActivity(&req); msg != "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", msg)
+		return
+	}
+	if !s.hubLimit.Allow("hub:"+hub, len(req.Targets)) {
+		tooMany(w, 30)
+		return
+	}
+	results := make([]pushResult, len(req.Targets))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for range min(workers, len(req.Targets)) {
+		wg.Go(func() {
+			for i := range jobs {
+				results[i] = s.sendLiveActivity(r.Context(), hub, req.Targets[i], &req)
+			}
+		})
+	}
+	for i := range req.Targets {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+	counts := map[string]int{}
+	for _, res := range results {
+		counts[res.Status]++
+	}
+	s.log.Info("live activity", "hub", hub, "event", req.Event, "targets", len(results), "sent", counts[StatusSent],
+		"gone", counts[StatusGone], "failed", counts[StatusFailed]+counts[StatusRejected], "limited", counts[StatusRateLimited])
+	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
+func (s *Server) sendLiveActivity(ctx context.Context, hub string, t liveActivityTarget, req *liveActivityRequest) pushResult {
+	res := pushResult{Device: t.Device}
+	token, err := s.keys.OpenDevice(hub, t.Device)
+	if err != nil {
+		// The handle is bad, not the activity: the hub drops the device.
+		res.Status, res.Error = StatusDeviceGone, "device handle not valid for this hub"
+		return res
+	}
+	sum := sha256.Sum256([]byte(t.Token))
+	if !s.deviceLimit.Allow("la:"+hex.EncodeToString(sum[:12]), 1) {
+		res.Status = StatusRateLimited
+		return res
+	}
+	la := &fcm.LiveActivity{
+		Token: t.Token, Event: req.Event, ContentState: req.ContentState,
+		AttributesType: req.AttributesType, Attributes: req.Attributes, RelevanceScore: req.RelevanceScore,
+	}
+	if req.Timestamp > 0 {
+		la.Timestamp = time.Unix(req.Timestamp, 0)
+	}
+	if req.StaleDate > 0 {
+		la.StaleDate = time.Unix(req.StaleDate, 0)
+	}
+	if req.DismissalDate > 0 {
+		la.DismissalDate = time.Unix(req.DismissalDate, 0)
+	}
+	err = s.sender.Send(ctx, fcm.Message{
+		Token: token, Title: req.Title, Body: req.Body, Silent: !req.Sound,
+		HighPrio: req.Priority == "high", TTL: time.Duration(req.TTL) * time.Second, LiveActivity: la,
+	})
+	switch {
+	case err == nil:
+		res.Status = StatusSent
+	case errors.Is(err, fcm.ErrUnregistered):
+		// The activity ended or its token rotated (or the phone is gone:
+		// the next notification tells). The hub forgets the activity token.
+		res.Status, res.Error = StatusGone, "activity token no longer valid"
+	case errors.Is(err, fcm.ErrInvalid):
+		res.Status, res.Error = StatusRejected, "message refused by FCM"
+		s.log.Warn("fcm refused live activity", "hub", hub, "err", err)
+	case errors.Is(err, fcm.ErrQuota):
+		res.Status, res.Error = StatusFailed, "FCM quota exceeded"
+	default:
+		res.Status, res.Error = StatusFailed, "FCM unavailable"
+		s.log.Warn("fcm live activity failed", "hub", hub, "err", err)
+	}
+	return res
+}
+
+func isHex(s string) bool {
+	for _, c := range s {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// jsonObject reports whether raw is a JSON object.
+func jsonObject(raw json.RawMessage) bool {
+	var m map[string]json.RawMessage
+	return json.Unmarshal(raw, &m) == nil && m != nil
+}
+
+func validateLiveActivity(req *liveActivityRequest) string {
+	switch req.Event {
+	case fcm.EventStart, fcm.EventUpdate, fcm.EventEnd:
+	default:
+		return "event: start, update or end"
+	}
+	if len(req.Targets) == 0 || len(req.Targets) > maxDevices {
+		return "targets: 1 to 100"
+	}
+	seen := make(map[string]bool, len(req.Targets))
+	for _, t := range req.Targets {
+		if t.Device == "" {
+			return "targets: device is required"
+		}
+		if len(t.Token) < 16 || len(t.Token) > maxLAToken || !isHex(t.Token) {
+			return "targets: token must be the hex ActivityKit token"
+		}
+		if seen[t.Token] {
+			return "targets: duplicate token"
+		}
+		seen[t.Token] = true
+	}
+	if len(req.ContentState) == 0 || len(req.ContentState) > maxLAState || !jsonObject(req.ContentState) {
+		return "content_state: a JSON object of at most 2048 bytes"
+	}
+	if req.Event == fcm.EventStart {
+		if strings.TrimSpace(req.AttributesType) == "" || len(req.AttributesType) > maxLAType {
+			return "attributes_type: required to start, at most 100 bytes"
+		}
+		if len(req.Attributes) == 0 || len(req.Attributes) > maxLAAttributes || !jsonObject(req.Attributes) {
+			return "attributes: required to start, a JSON object of at most 1024 bytes"
+		}
+	} else {
+		req.AttributesType, req.Attributes = "", nil
+	}
+	if req.Timestamp < 0 || req.StaleDate < 0 || req.DismissalDate < 0 {
+		return "timestamp, stale_date, dismissal_date: unix seconds"
+	}
+	if req.RelevanceScore < 0 {
+		return "relevance_score: not negative"
+	}
+	if req.Title == "" && req.Body != "" {
+		return "body: needs a title"
+	}
+	if len(req.Title) > maxTitle || len(req.Body) > maxText {
+		return "title, body: at most 200 and 2000 bytes"
+	}
+	switch req.Priority {
+	case "":
+		req.Priority = "high"
+	case "high", "normal":
+	default:
+		return "priority: high or normal"
+	}
+	if req.TTL < 0 || req.TTL > maxTTL {
+		return "ttl: 0 to 2419200 seconds"
+	}
+	return ""
 }
 
 // reservedData are data keys FCM refuses.

@@ -128,6 +128,59 @@ Errors for the whole request: `400 invalid_request | invalid_json` ·
 
 The relay does not retry and does not queue: the hub decides.
 
+### `POST /v1/live-activity` — start, update or end a Live Activity (called by the hub)
+
+`Authorization: Bearer <hub_token>`
+
+Sent through FCM as an ActivityKit push (`apns.live_activity_token`, see
+[Firebase: Live Activity](https://firebase.google.com/docs/cloud-messaging/customize-messages/live-activity)).
+Apple delivers it to the activity even with the app closed. Each target pairs
+the phone's device handle (FCM still needs the phone's own token) with an
+ActivityKit token the app gave the hub: the activity's push token for
+`update` and `end`, the push-to-start token for `start` (iOS 17.2+).
+
+```json
+{
+  "event": "update",
+  "targets": [{"device": "prd_…", "token": "80f4…(hex)"}],
+  "content_state": {"outages": [], "count": 0},
+  "attributes_type": "OutageActivityAttributes",
+  "attributes": {"hub": "https://hub.example.com"},
+  "timestamp": 1793500000,
+  "stale_date": 1793501800,
+  "dismissal_date": 1793500000,
+  "title": "api.example.com is down",
+  "body": "HTTP 503",
+  "sound": false,
+  "priority": "high",
+  "ttl": 3600
+}
+```
+
+| Field | | |
+|---|---|---|
+| `event` | required | `start`, `update` or `end` |
+| `targets` | required | 1 to 100 `{device, token}`, no duplicate tokens. `token` is hex, 16 to 1024 chars. |
+| `content_state` | required | JSON object, the activity's `ContentState` exactly as the app decodes it (max 2048 bytes). For an `end`, the final state. |
+| `attributes_type` | `start` only | Name of the `ActivityAttributes` type (max 100 bytes) |
+| `attributes` | `start` only | JSON object of the attributes (max 1024 bytes). Ignored for the other events. |
+| `timestamp` | now | Unix seconds. iOS ignores a push older than the activity's last state. |
+| `stale_date` | none | Unix seconds: from then on the activity shows as out of date |
+| `dismissal_date` | iOS default (up to 4 h) | `end` only, unix seconds. Now or in the past = removed right away. |
+| `relevance_score` | none | Order among several activities |
+| `title`, `body` | none | Optional alert that lights up the screen (iOS asks for one to start an activity). Without it the activity changes silently. |
+| `sound` | `false` | Sound with the alert |
+| `priority` | `high` | `high`: APNs priority 10, counted by iOS against an hourly budget. `normal`: priority 5, for refreshes that may wait. |
+| `ttl` | FCM default | Seconds APNs keeps trying (0 to 2419200) |
+
+Answer `200` with one result per target, in the order sent. Statuses are
+those of `/v1/push`, except:
+
+| Status | Hub should |
+|---|---|
+| `gone` | **forget the activity token** (the activity ended, was dismissed, or the token rotated). Keep the device. |
+| `device_gone` | delete the device: the handle is not valid for this hub |
+
 ### `GET /healthz`
 
 `200 {"status": "ok", "fcm": true}`. `fcm: false` means the relay runs without
@@ -143,6 +196,7 @@ Firebase credentials.
 |---|---|
 | per hub | 120 notifications/minute (one per device), bursts of 120 |
 | per phone | 30/minute, bursts of 10 |
+| per Live Activity token | 30/minute, bursts of 10 |
 | per IP | 20 registrations + enrollments/minute, bursts of 10 |
 
 ## Hub side (pingtxt)

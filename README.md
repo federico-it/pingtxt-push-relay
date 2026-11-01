@@ -22,6 +22,9 @@ pingtxt hub ──HTTPS──▶ push relay ──FCM HTTP v1──▶ Firebase 
 - **Hubs push only to their own phones**: the iOS app enrolls its FCM token for
   one hub and gets back a sealed *device handle*; a hub can open only handles
   made for it, and never sees the FCM token itself.
+- **Live Activities**: the hub can start (iOS 17.2+), update and end the
+  app's Live Activity through FCM, so it changes right away with the app
+  closed.
 - **Rate limits** per hub, per phone and per IP (registration, enrollment).
 - Runs as uid 10001, no shell, read-only root filesystem friendly,
   `HEALTHCHECK` built in.
