@@ -52,6 +52,9 @@ docker run -d --name push-relay -p 8080:8080 \
 
 Put it behind HTTPS (Traefik / Coolify, Caddy, nginx) and set
 `RELAY_TRUST_PROXY=true` so the per-IP limits see the client address.
+Behind Cloudflare also set `RELAY_CLIENT_IP_HEADER=CF-Connecting-IP`.
+[`docs/openapi.json`](docs/openapi.json) describes every route (OpenAPI 3.0),
+ready for Cloudflare API Shield schema validation.
 
 **Keep `RELAY_SECRET` safe and never change it**: every hub token and device
 handle is derived from it. A new secret logs out all hubs and all phones (they
@@ -71,6 +74,7 @@ register and enroll again by themselves, but notifications stop until they do).
 | `RELAY_DEVICE_RATE` | `30` | Notifications per phone per minute |
 | `RELAY_IP_RATE` | `20` | Hub registrations + device enrollments per IP per minute |
 | `RELAY_TRUST_PROXY` | `false` | Client IP from the last `X-Forwarded-For` entry |
+| `RELAY_CLIENT_IP_HEADER` | | Header with the client IP set by a CDN, checked first: `CF-Connecting-IP` behind Cloudflare (there the last `X-Forwarded-For` entry is a Cloudflare address). Only set it when the origin accepts traffic from the CDN alone, or clients can pick their own IP for the limits. |
 | `FCM_DRY_RUN` | `false` | FCM validates messages but does not deliver them |
 | `RELAY_LOG_LEVEL` | `info` | `debug` logs every request (method, path, status, time) |
 

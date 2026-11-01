@@ -287,6 +287,18 @@ func TestClientIP(t *testing.T) {
 	if ip := s.clientIP(r); ip != "2.2.2.2" {
 		t.Fatal(ip)
 	}
+	s.cfg.ClientIPHeader = "CF-Connecting-IP"
+	if ip := s.clientIP(r); ip != "2.2.2.2" {
+		t.Fatal("no header:", ip)
+	}
+	r.Header.Set("CF-Connecting-IP", "not an ip")
+	if ip := s.clientIP(r); ip != "2.2.2.2" {
+		t.Fatal("bad header:", ip)
+	}
+	r.Header.Set("CF-Connecting-IP", "2001:db8::1")
+	if ip := s.clientIP(r); ip != "2001:db8::1" {
+		t.Fatal(ip)
+	}
 }
 
 func TestLiveActivity(t *testing.T) {
