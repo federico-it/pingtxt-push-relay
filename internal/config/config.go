@@ -26,10 +26,13 @@ type Config struct {
 	RegToken     string
 	RevokedHubs  map[string]bool
 	TrustProxy   bool
-	HubRate      int // pushes per hub per minute
-	DeviceRate   int // pushes per device per minute
-	IPRate       int // hub registrations + device enrollments per IP per minute
-	LogLevel     string
+	// ClientIPHeader names a header that holds the client IP, set by a CDN
+	// in front (CF-Connecting-IP for Cloudflare). Empty = not used.
+	ClientIPHeader string
+	HubRate        int // pushes per hub per minute
+	DeviceRate     int // pushes per device per minute
+	IPRate         int // hub registrations + device enrollments per IP per minute
+	LogLevel       string
 }
 
 // Load reads the environment. getenv is os.Getenv outside tests.
@@ -40,6 +43,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		RegToken:     getenv("RELAY_REGISTRATION_TOKEN"),
 		RevokedHubs:  map[string]bool{},
 		LogLevel:     or(getenv("RELAY_LOG_LEVEL"), "info"),
+
+		ClientIPHeader: strings.TrimSpace(getenv("RELAY_CLIENT_IP_HEADER")),
 	}
 	var err error
 

@@ -545,7 +545,14 @@ func bearer(r *http.Request) (string, bool) {
 
 // clientIP is the peer address, or with RELAY_TRUST_PROXY the address the
 // proxy in front (Traefik, Caddy, nginx) appended last to X-Forwarded-For.
+// Behind a CDN that last address is the CDN's, so RELAY_CLIENT_IP_HEADER
+// (CF-Connecting-IP for Cloudflare) comes first when it holds an IP.
 func (s *Server) clientIP(r *http.Request) string {
+	if h := s.cfg.ClientIPHeader; h != "" {
+		if ip := strings.TrimSpace(r.Header.Get(h)); net.ParseIP(ip) != nil {
+			return ip
+		}
+	}
 	if s.cfg.TrustProxy {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			parts := strings.Split(xff, ",")

@@ -1,0 +1,687 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "pingtxt push relay",
+    "version": "1.0.0",
+    "description": "Routes of pingtxt-push-relay (see docs/API.md). Hand-written: keep it in sync with internal/server/server.go (TestOpenAPIRoutes checks every operation here is served). Limits match the server checks, never stricter, so Cloudflare schema validation can block requests the relay would refuse anyway. Unknown fields are allowed on purpose: a newer hub may send fields an older relay ignores. Optional fields are nullable because the relay reads null as empty.",
+    "license": {
+      "name": "AGPL-3.0",
+      "url": "https://www.gnu.org/licenses/agpl-3.0.html"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://push.pingtxt.com"
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "index",
+        "summary": "Name and version",
+        "responses": {
+          "200": {
+            "description": "Name and version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "operationId": "health",
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "fcm": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/hubs": {
+      "post": {
+        "operationId": "registerHub",
+        "summary": "Register a hub (no body)",
+        "description": "With RELAY_REGISTRATION=token it needs the registration token as Bearer.",
+        "responses": {
+          "201": {
+            "description": "Hub id and token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "hub_id": {
+                      "type": "string"
+                    },
+                    "hub_token": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Wrong registration token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Registration closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Per-IP limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/hubs/me": {
+      "get": {
+        "operationId": "hubMe",
+        "summary": "Check the hub token",
+        "security": [
+          {
+            "hubToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "hub_id": {
+                      "type": "string"
+                    },
+                    "fcm": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bad token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hub revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/devices": {
+      "post": {
+        "operationId": "enrollDevice",
+        "summary": "Enroll a phone (called by the iOS app)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Device handle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "device": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid hub id or token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hub revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body over 64 KB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Per-IP limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/push": {
+      "post": {
+        "operationId": "push",
+        "summary": "Send a notification (called by the hub)",
+        "security": [
+          {
+            "hubToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One result per device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Result"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bad token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hub revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body over 64 KB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Hub limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "FCM not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/live-activity": {
+      "post": {
+        "operationId": "liveActivity",
+        "summary": "Start, update or end a Live Activity (called by the hub)",
+        "security": [
+          {
+            "hubToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LiveActivityRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One result per target",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Result"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bad token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hub revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body over 64 KB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Hub limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "FCM not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "hubToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Hub token prh_<hub_id>.<mac>"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "Result": {
+        "type": "object",
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "gone",
+              "rate_limited",
+              "rejected",
+              "failed",
+              "device_gone"
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "EnrollRequest": {
+        "type": "object",
+        "required": [
+          "hub_id",
+          "fcm_token"
+        ],
+        "properties": {
+          "hub_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{22}$",
+            "description": "16 random bytes, base64url without padding"
+          },
+          "fcm_token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        }
+      },
+      "PushRequest": {
+        "type": "object",
+        "required": [
+          "devices",
+          "title"
+        ],
+        "properties": {
+          "devices": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            },
+            "description": "Device handles prd_\u2026; a handle that is not valid is answered per device (gone), so no pattern here"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true
+          },
+          "data": {
+            "type": "object",
+            "maxProperties": 16,
+            "additionalProperties": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "thread_id": {
+            "type": "string",
+            "maxLength": 64,
+            "nullable": true
+          },
+          "collapse_id": {
+            "type": "string",
+            "maxLength": 64,
+            "nullable": true
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "",
+              "high",
+              "normal"
+            ],
+            "nullable": true
+          },
+          "ttl": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2419200,
+            "nullable": true
+          },
+          "silent": {
+            "type": "boolean",
+            "nullable": true
+          }
+        }
+      },
+      "LiveActivityTarget": {
+        "type": "object",
+        "required": [
+          "device",
+          "token"
+        ],
+        "properties": {
+          "device": {
+            "type": "string",
+            "minLength": 1
+          },
+          "token": {
+            "type": "string",
+            "pattern": "^[0-9A-Fa-f]{16,1024}$"
+          }
+        }
+      },
+      "LiveActivityRequest": {
+        "type": "object",
+        "required": [
+          "event",
+          "targets",
+          "content_state"
+        ],
+        "properties": {
+          "event": {
+            "type": "string",
+            "enum": [
+              "start",
+              "update",
+              "end"
+            ]
+          },
+          "targets": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/LiveActivityTarget"
+            }
+          },
+          "content_state": {
+            "type": "object"
+          },
+          "attributes_type": {
+            "type": "string",
+            "maxLength": 100,
+            "nullable": true
+          },
+          "attributes": {
+            "type": "object",
+            "nullable": true
+          },
+          "timestamp": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "stale_date": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "dismissal_date": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "relevance_score": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true
+          },
+          "sound": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "",
+              "high",
+              "normal"
+            ],
+            "nullable": true
+          },
+          "ttl": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2419200,
+            "nullable": true
+          }
+        }
+      }
+    }
+  }
+}
