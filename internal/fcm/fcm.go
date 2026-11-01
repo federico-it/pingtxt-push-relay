@@ -52,6 +52,33 @@ type Message struct {
 	HighPrio   bool          // alert now (down), else let iOS choose
 	TTL        time.Duration // 0 = FCM default (4 weeks)
 	Silent     bool          // no sound
+
+	// LiveActivity, when set, makes this an update of a Live Activity
+	// instead of a notification. Token is still the FCM token of the phone.
+	LiveActivity *LiveActivity
+}
+
+// Events of a Live Activity push.
+const (
+	EventStart  = "start"  // push-to-start token, iOS 17.2+
+	EventUpdate = "update" // token of the running activity
+	EventEnd    = "end"
+)
+
+// LiveActivity is an ActivityKit push sent through FCM
+// (apns.live_activity_token). Title and Body of the Message, when set,
+// become the alert that lights up the screen; without them the activity
+// changes silently.
+type LiveActivity struct {
+	Token          string          // push token of the activity, or the push-to-start token
+	Event          string          // EventStart, EventUpdate or EventEnd
+	ContentState   json.RawMessage // the activity's ContentState as JSON
+	AttributesType string          // start only: the ActivityAttributes type name
+	Attributes     json.RawMessage // start only
+	Timestamp      time.Time       // when the state was true; zero = now
+	StaleDate      time.Time       // zero = none
+	DismissalDate  time.Time       // end only; zero = iOS default (up to 4 hours)
+	RelevanceScore float64         // 0 = none
 }
 
 // Result kinds of a send.
@@ -241,6 +268,9 @@ func (c *Client) Send(ctx context.Context, m Message) error {
 }
 
 func (c *Client) payload(m Message) map[string]any {
+	if m.LiveActivity != nil {
+		return c.liveActivityPayload(m)
+	}
 	aps := map[string]any{
 		"alert": map[string]string{"title": m.Title, "body": m.Body},
 	}
@@ -270,6 +300,62 @@ func (c *Client) payload(m Message) map[string]any {
 		msg["data"] = m.Data
 	}
 	return msg
+}
+
+// liveActivityPayload follows
+// https://firebase.google.com/docs/cloud-messaging/customize-messages/live-activity
+// FCM sets the APNs push type and topic itself when live_activity_token is
+// there; only the priority is ours. No top-level notification: it would turn
+// the message into a normal alert.
+func (c *Client) liveActivityPayload(m Message) map[string]any {
+	la := m.LiveActivity
+	ts := la.Timestamp
+	if ts.IsZero() {
+		ts = c.now()
+	}
+	aps := map[string]any{
+		"timestamp":     ts.Unix(),
+		"event":         la.Event,
+		"content-state": la.ContentState,
+	}
+	if !la.StaleDate.IsZero() {
+		aps["stale-date"] = la.StaleDate.Unix()
+	}
+	if la.Event == EventEnd && !la.DismissalDate.IsZero() {
+		aps["dismissal-date"] = la.DismissalDate.Unix()
+	}
+	if la.Event == EventStart {
+		aps["attributes-type"] = la.AttributesType
+		aps["attributes"] = la.Attributes
+	}
+	if la.RelevanceScore > 0 {
+		aps["relevance-score"] = la.RelevanceScore
+	}
+	if m.Title != "" {
+		alert := map[string]string{"title": m.Title}
+		if m.Body != "" {
+			alert["body"] = m.Body
+		}
+		aps["alert"] = alert
+		if !m.Silent {
+			aps["sound"] = "default"
+		}
+	}
+	headers := map[string]string{"apns-priority": "5"}
+	if m.HighPrio {
+		headers["apns-priority"] = "10"
+	}
+	if m.TTL > 0 {
+		headers["apns-expiration"] = strconv.FormatInt(c.now().Add(m.TTL).Unix(), 10)
+	}
+	return map[string]any{
+		"token": m.Token,
+		"apns": map[string]any{
+			"live_activity_token": la.Token,
+			"headers":             headers,
+			"payload":             map[string]any{"aps": aps},
+		},
+	}
 }
 
 // classify maps an FCM error response to the errors of this package.

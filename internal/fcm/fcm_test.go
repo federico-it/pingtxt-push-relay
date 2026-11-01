@@ -184,3 +184,48 @@ func TestSendRetriesOn401(t *testing.T) {
 		t.Fatalf("%d token requests, want 2", f.tokens.Load())
 	}
 }
+
+func TestLiveActivityPayload(t *testing.T) {
+	f := newFake(t)
+	c := f.client(t)
+	at := time.Unix(1_800_000_000, 0)
+	start := Message{Token: "dev", Title: "2 monitors down", Body: "api, web", HighPrio: true, Silent: true,
+		LiveActivity: &LiveActivity{
+			Token: "abcd", Event: EventStart, ContentState: json.RawMessage(`{"count":2}`),
+			AttributesType: "OutageActivityAttributes", Attributes: json.RawMessage(`{"hub":"https://h"}`),
+			Timestamp: at, StaleDate: at.Add(30 * time.Minute),
+		}}
+	if err := c.Send(context.Background(), start); err != nil {
+		t.Fatal(err)
+	}
+	msg := f.last.Load().(map[string]any)["message"].(map[string]any)
+	if msg["token"] != "dev" || msg["notification"] != nil {
+		t.Fatalf("message %v", msg)
+	}
+	apns := msg["apns"].(map[string]any)
+	if apns["live_activity_token"] != "abcd" {
+		t.Fatalf("apns %v", apns)
+	}
+	if h := apns["headers"].(map[string]any); h["apns-priority"] != "10" || h["apns-push-type"] != nil {
+		t.Fatalf("headers %v", h)
+	}
+	aps := apns["payload"].(map[string]any)["aps"].(map[string]any)
+	if aps["event"] != "start" || aps["timestamp"] != float64(at.Unix()) || aps["stale-date"] != float64(at.Unix()+1800) ||
+		aps["attributes-type"] != "OutageActivityAttributes" || aps["attributes"].(map[string]any)["hub"] != "https://h" ||
+		aps["content-state"].(map[string]any)["count"] != float64(2) || aps["sound"] != nil ||
+		aps["alert"].(map[string]any)["title"] != "2 monitors down" || aps["dismissal-date"] != nil {
+		t.Fatalf("aps %v", aps)
+	}
+
+	end := Message{Token: "dev", LiveActivity: &LiveActivity{Token: "abcd", Event: EventEnd,
+		ContentState: json.RawMessage(`{"count":0}`), Attributes: json.RawMessage(`{"x":1}`), DismissalDate: at}}
+	if err := c.Send(context.Background(), end); err != nil {
+		t.Fatal(err)
+	}
+	apns = f.last.Load().(map[string]any)["message"].(map[string]any)["apns"].(map[string]any)
+	aps = apns["payload"].(map[string]any)["aps"].(map[string]any)
+	if aps["event"] != "end" || aps["dismissal-date"] != float64(at.Unix()) || aps["alert"] != nil ||
+		aps["attributes"] != nil || aps["timestamp"] == nil || apns["headers"].(map[string]any)["apns-priority"] != "5" {
+		t.Fatalf("end aps %v", apns)
+	}
+}

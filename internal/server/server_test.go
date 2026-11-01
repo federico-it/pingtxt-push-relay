@@ -288,3 +288,68 @@ func TestClientIP(t *testing.T) {
 		t.Fatal(ip)
 	}
 }
+
+func TestLiveActivity(t *testing.T) {
+	e := setup(t, nil)
+	hubID, hubTok := e.register()
+	d1 := e.enroll(hubID, "tok-1")
+	d2 := e.enroll(hubID, "tok-2")
+	e.fcm.errs["tok-2"] = fmt.Errorf("x: %w", fcm.ErrUnregistered)
+	la1, la2 := strings.Repeat("ab", 40), strings.Repeat("cd", 40)
+
+	code, out := e.do("POST", "/v1/live-activity", hubTok, map[string]any{
+		"event": "start", "content_state": map[string]any{"count": 1}, "attributes_type": "OutageActivityAttributes",
+		"attributes": map[string]string{"hub": "https://h"}, "stale_date": 1_800_000_000, "title": "api is down",
+		"targets": []map[string]string{{"device": d1, "token": la1}, {"device": d2, "token": la2}, {"device": "prd_bad", "token": strings.Repeat("ef", 40)}},
+	})
+	if code != 200 {
+		t.Fatalf("%d %v", code, out)
+	}
+	res := out["results"].([]any)
+	want := []string{StatusSent, StatusGone, StatusDeviceGone}
+	for i, w := range want {
+		if s := res[i].(map[string]any)["status"]; s != w {
+			t.Fatalf("result %d: %v, want %s", i, s, w)
+		}
+	}
+	if len(e.fcm.sent) != 1 {
+		t.Fatalf("%d sent", len(e.fcm.sent))
+	}
+	m := e.fcm.sent[0]
+	la := m.LiveActivity
+	if m.Token != "tok-1" || !m.HighPrio || !m.Silent || m.Title != "api is down" || la == nil || la.Token != la1 ||
+		la.Event != "start" || la.AttributesType != "OutageActivityAttributes" || la.StaleDate.Unix() != 1_800_000_000 ||
+		string(la.ContentState) != `{"count":1}` {
+		t.Fatalf("%+v %+v", m, la)
+	}
+
+	// Update: attributes are dropped, priority normal kept.
+	code, out = e.do("POST", "/v1/live-activity", hubTok, map[string]any{
+		"event": "update", "content_state": map[string]any{"count": 2}, "priority": "normal",
+		"attributes": map[string]string{"hub": "x"}, "targets": []map[string]string{{"device": d1, "token": la1}},
+	})
+	if code != 200 {
+		t.Fatalf("%d %v", code, out)
+	}
+	if m := e.fcm.sent[1]; m.HighPrio || m.LiveActivity.Attributes != nil || m.LiveActivity.Event != "update" {
+		t.Fatalf("%+v", m)
+	}
+
+	bad := []map[string]any{
+		{"event": "pause", "content_state": map[string]any{}, "targets": []map[string]string{{"device": d1, "token": la1}}},
+		{"event": "update", "content_state": map[string]any{}, "targets": []map[string]string{}},
+		{"event": "update", "content_state": map[string]any{}, "targets": []map[string]string{{"device": d1, "token": "not-hex-token-xyz"}}},
+		{"event": "update", "content_state": []int{1}, "targets": []map[string]string{{"device": d1, "token": la1}}},
+		{"event": "update", "content_state": map[string]any{}, "targets": []map[string]string{{"device": d1, "token": la1}, {"device": d2, "token": la1}}},
+		{"event": "start", "content_state": map[string]any{}, "targets": []map[string]string{{"device": d1, "token": la1}}},
+		{"event": "update", "content_state": map[string]any{"x": strings.Repeat("a", 3000)}, "targets": []map[string]string{{"device": d1, "token": la1}}},
+	}
+	for i, b := range bad {
+		if code, out := e.do("POST", "/v1/live-activity", hubTok, b); code != 400 {
+			t.Fatalf("bad %d: %d %v", i, code, out)
+		}
+	}
+	if code, _ := e.do("POST", "/v1/live-activity", "", bad[0]); code != 401 {
+		t.Fatalf("no token: %d", code)
+	}
+}
