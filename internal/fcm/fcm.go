@@ -49,6 +49,7 @@ type Message struct {
 	Data       map[string]string
 	ThreadID   string        // groups notifications on the phone
 	CollapseID string        // a newer message replaces an older one
+	Category   string        // aps.category: the app's UNNotificationCategory (action buttons)
 	HighPrio   bool          // alert now (down), else let iOS choose
 	TTL        time.Duration // 0 = FCM default (4 weeks)
 	Silent     bool          // no sound
@@ -279,6 +280,9 @@ func (c *Client) payload(m Message) map[string]any {
 	}
 	if m.ThreadID != "" {
 		aps["thread-id"] = m.ThreadID
+	}
+	if m.Category != "" {
+		aps["category"] = m.Category
 	}
 	headers := map[string]string{"apns-push-type": "alert", "apns-priority": "5"}
 	if m.HighPrio {

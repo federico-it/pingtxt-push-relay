@@ -87,6 +87,7 @@ handle for the same input; any of them works.
   "priority": "high",
   "thread_id": "monitor-42",
   "collapse_id": "monitor-42",
+  "category": "MONITOR_DOWN",
   "ttl": 3600,
   "silent": false,
   "data": {"type": "monitor", "monitor_id": "42", "status": "down"}
@@ -101,6 +102,7 @@ handle for the same input; any of them works.
 | `priority` | `normal` | `high`: APNs priority 10 and `time-sensitive` (breaks through Focus). Use it for *down*. `normal`: priority 5. |
 | `thread_id` | | Groups notifications on the phone (max 64 bytes) |
 | `collapse_id` | | A newer notification with the same id replaces the old one (max 64 bytes) |
+| `category` | | `aps.category` (max 64 bytes): the identifier of a `UNNotificationCategory` registered by the app, which shows its action buttons |
 | `ttl` | FCM default (4 weeks) | Seconds APNs keeps trying when the phone is offline (0 to 2419200). An outage alert is stale after ~1 h. |
 | `silent` | `false` | No sound |
 | `data` | | String map for the app (deep links), max 16 keys and 2048 bytes. Keys `from`, `message_type`, `notification`, `google*`, `gcm*` are reserved. |
@@ -236,7 +238,8 @@ batches of up to 100, and handles the results (`gone` → delete). Suggested
 message:
 
 - down: `priority: high`, `ttl: 3600`, `thread_id`/`collapse_id`:
-  `monitor-<id>`, `data: {type: monitor, monitor_id, status: down}`
+  `monitor-<id>`, `category: MONITOR_DOWN`,
+  `data: {type: monitor, monitor_id, status: down}`
 - up: `priority: normal`, same thread and collapse id (replaces the down
   notification on the lock screen)
 - certificates, domains, incidents: `priority: normal`, `ttl: 86400`

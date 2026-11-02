@@ -108,7 +108,7 @@ func TestSendAndTokenCache(t *testing.T) {
 	c := f.client(t)
 	ctx := context.Background()
 	m := Message{Token: "dev", Title: "api down", Body: "timeout", HighPrio: true, CollapseID: "m-1",
-		ThreadID: "m-1", TTL: time.Hour, Data: map[string]string{"monitor_id": "1"}}
+		ThreadID: "m-1", Category: "MONITOR_DOWN", TTL: time.Hour, Data: map[string]string{"monitor_id": "1"}}
 	for range 3 {
 		if err := c.Send(ctx, m); err != nil {
 			t.Fatal(err)
@@ -128,7 +128,7 @@ func TestSendAndTokenCache(t *testing.T) {
 		t.Fatalf("headers %v", h)
 	}
 	aps := apns["payload"].(map[string]any)["aps"].(map[string]any)
-	if aps["sound"] != "default" || aps["thread-id"] != "m-1" {
+	if aps["sound"] != "default" || aps["thread-id"] != "m-1" || aps["category"] != "MONITOR_DOWN" {
 		t.Fatalf("aps %v", aps)
 	}
 
