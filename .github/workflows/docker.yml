@@ -57,4 +57,12 @@ jobs:
       - name: Sign image
         env:
           IMAGE: ghcr.io/${{ github.repository_owner }}/pingtxt-push-relay@${{ steps.build.outputs.digest }}
-        run: cosign sign --yes "$IMAGE"
+        # Rekor sometimes answers 409 "equivalent entry already exists" when its
+        # first reply timed out; a new attempt signs with fresh keys and passes.
+        run: |
+          for i in 1 2 3; do
+            cosign sign --yes "$IMAGE" && exit 0
+            echo "cosign sign failed (attempt $i), retrying in $((i * 10))s"
+            sleep $((i * 10))
+          done
+          exit 1
