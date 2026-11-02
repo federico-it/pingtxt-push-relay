@@ -118,6 +118,11 @@ Images: `ghcr.io/federico-it/pingtxt-push-relay:main` from main,
 `:X.Y.Z` and `:latest` from `vX.Y.Z` tags, multi-arch (amd64, arm64), signed
 with cosign (keyless).
 
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md), never in a public issue.
+
 ## License
 
 AGPL-3.0, like pingtxt.
