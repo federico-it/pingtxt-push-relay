@@ -156,6 +156,7 @@ type pushRequest struct {
 	Data       map[string]string `json:"data"`
 	ThreadID   string            `json:"thread_id"`
 	CollapseID string            `json:"collapse_id"`
+	Category   string            `json:"category"`
 	Priority   string            `json:"priority"`
 	TTL        int               `json:"ttl"`
 	Silent     bool              `json:"silent"`
@@ -241,7 +242,7 @@ func (s *Server) sendOne(ctx context.Context, hub, handle string, req *pushReque
 	}
 	err = s.sender.Send(ctx, fcm.Message{
 		Token: token, Title: req.Title, Body: req.Body, Data: req.Data,
-		ThreadID: req.ThreadID, CollapseID: req.CollapseID,
+		ThreadID: req.ThreadID, CollapseID: req.CollapseID, Category: req.Category,
 		HighPrio: req.Priority == "high", TTL: time.Duration(req.TTL) * time.Second, Silent: req.Silent,
 	})
 	switch {
@@ -501,8 +502,8 @@ func validate(req *pushRequest) string {
 	if size > maxDataSize {
 		return "data: at most 2048 bytes"
 	}
-	if len(req.ThreadID) > maxID || len(req.CollapseID) > maxID {
-		return "thread_id, collapse_id: at most 64 bytes"
+	if len(req.ThreadID) > maxID || len(req.CollapseID) > maxID || len(req.Category) > maxID {
+		return "thread_id, collapse_id, category: at most 64 bytes"
 	}
 	switch req.Priority {
 	case "":
