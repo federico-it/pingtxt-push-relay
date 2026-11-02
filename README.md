@@ -25,11 +25,16 @@ pingtxt hub ──HTTPS──▶ push relay ──FCM HTTP v1──▶ Firebase 
 - **Live Activities**: the hub can start (iOS 17.2+), update and end the
   app's Live Activity through FCM, so it changes right away with the app
   closed.
+- **Action buttons**: the hub can set the notification's category
+  (`aps.category`), so the app shows buttons such as "check now" or "mute for
+  1 hour" on it.
 - **Rate limits** per hub, per phone and per IP (registration, enrollment).
 - Runs as uid 10001, no shell, read-only root filesystem friendly,
   `HEALTHCHECK` built in.
 
 The API, the hub side and the app side are described in [docs/API.md](docs/API.md).
+To turn push on in a hub and add the app channel, see the
+[iOS app docs](https://pingtxt.com/docs/ios-app/) of pingtxt.
 
 ## Run
 
