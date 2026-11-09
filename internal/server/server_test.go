@@ -306,19 +306,22 @@ func TestLiveActivity(t *testing.T) {
 	hubID, hubTok := e.register()
 	d1 := e.enroll(hubID, "tok-1")
 	d2 := e.enroll(hubID, "tok-2")
+	d3 := e.enroll(hubID, "tok-3")
 	e.fcm.errs["tok-2"] = fmt.Errorf("x: %w", fcm.ErrUnregistered)
-	la1, la2 := strings.Repeat("ab", 40), strings.Repeat("cd", 40)
+	// FCM refuses an old push-to-start token: gone, so the hub forgets it.
+	e.fcm.errs["tok-3"] = fmt.Errorf("x: %w: %w", fcm.ErrActivityToken, fcm.ErrInvalid)
+	la1, la2, la3 := strings.Repeat("ab", 40), strings.Repeat("cd", 40), strings.Repeat("12", 40)
 
 	code, out := e.do("POST", "/v1/live-activity", hubTok, map[string]any{
 		"event": "start", "content_state": map[string]any{"count": 1}, "attributes_type": "OutageActivityAttributes",
 		"attributes": map[string]string{"hub": "https://h"}, "stale_date": 1_800_000_000, "title": "api is down",
-		"targets": []map[string]string{{"device": d1, "token": la1}, {"device": d2, "token": la2}, {"device": "prd_bad", "token": strings.Repeat("ef", 40)}},
+		"targets": []map[string]string{{"device": d1, "token": la1}, {"device": d2, "token": la2}, {"device": "prd_bad", "token": strings.Repeat("ef", 40)}, {"device": d3, "token": la3}},
 	})
 	if code != 200 {
 		t.Fatalf("%d %v", code, out)
 	}
 	res := out["results"].([]any)
-	want := []string{StatusSent, StatusGone, StatusDeviceGone}
+	want := []string{StatusSent, StatusGone, StatusDeviceGone, StatusGone}
 	for i, w := range want {
 		if s := res[i].(map[string]any)["status"]; s != w {
 			t.Fatalf("result %d: %v, want %s", i, s, w)

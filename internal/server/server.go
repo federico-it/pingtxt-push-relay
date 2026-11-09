@@ -374,7 +374,7 @@ func (s *Server) sendLiveActivity(ctx context.Context, hub string, t liveActivit
 	switch {
 	case err == nil:
 		res.Status = StatusSent
-	case errors.Is(err, fcm.ErrUnregistered):
+	case errors.Is(err, fcm.ErrUnregistered), errors.Is(err, fcm.ErrActivityToken):
 		// The activity ended or its token rotated (or the phone is gone:
 		// the next notification tells). The hub forgets the activity token.
 		res.Status, res.Error = StatusGone, "activity token no longer valid"

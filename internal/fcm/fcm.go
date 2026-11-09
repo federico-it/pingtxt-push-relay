@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -91,6 +92,10 @@ var (
 	ErrInvalid = errors.New("invalid message")
 	// ErrQuota: FCM rate limit, try later.
 	ErrQuota = errors.New("fcm quota exceeded")
+	// ErrActivityToken: FCM refused the Live Activity token (an old
+	// push-to-start token, an activity token that rotated). It wraps
+	// ErrInvalid too.
+	ErrActivityToken = errors.New("invalid live activity token")
 )
 
 // Client sends messages. It is safe for concurrent use.
@@ -394,6 +399,9 @@ func classify(status int, body []byte) error {
 		return fmt.Errorf("%w: %s", ErrUnregistered, msg)
 	case code == "QUOTA_EXCEEDED" || status == http.StatusTooManyRequests:
 		return fmt.Errorf("%w: %s", ErrQuota, msg)
+	case (code == "INVALID_ARGUMENT" || status == http.StatusBadRequest) &&
+		strings.Contains(strings.ToLower(msg), "live activity token"):
+		return fmt.Errorf("%w: %w: %s", ErrActivityToken, ErrInvalid, msg)
 	case code == "INVALID_ARGUMENT" || status == http.StatusBadRequest:
 		return fmt.Errorf("%w: %s", ErrInvalid, msg)
 	default: // UNAVAILABLE, INTERNAL, THIRD_PARTY_AUTH_ERROR, 5xx
