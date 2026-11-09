@@ -180,7 +180,7 @@ those of `/v1/push`, except:
 
 | Status | Hub should |
 |---|---|
-| `gone` | **forget the activity token** (the activity ended, was dismissed, or the token rotated). Keep the device. |
+| `gone` | **forget the activity token** (the activity ended, was dismissed, or the token rotated; also when FCM answers "Invalid Live Activity Token", for example an old push-to-start token). Keep the device. |
 | `device_gone` | delete the device: the handle is not valid for this hub |
 
 ### `GET /healthz`

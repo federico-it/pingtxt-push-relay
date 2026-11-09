@@ -150,6 +150,8 @@ func TestSendErrors(t *testing.T) {
 	}{
 		{404, `{"error":{"status":"NOT_FOUND","message":"Requested entity was not found.","details":[{"@type":"type.googleapis.com/google.firebase.fcm.v1.FcmError","errorCode":"UNREGISTERED"}]}}`, ErrUnregistered},
 		{400, `{"error":{"status":"INVALID_ARGUMENT","message":"The registration token is not a valid FCM registration token"}}`, ErrInvalid},
+		{400, `{"error":{"status":"INVALID_ARGUMENT","message":"Invalid Live Activity Token"}}`, ErrActivityToken},
+		{400, `{"error":{"status":"INVALID_ARGUMENT","message":"Invalid Live Activity Token"}}`, ErrInvalid},
 		{403, `{"error":{"status":"PERMISSION_DENIED","details":[{"errorCode":"SENDER_ID_MISMATCH"}]}}`, ErrUnregistered},
 		{429, `{"error":{"status":"RESOURCE_EXHAUSTED","details":[{"errorCode":"QUOTA_EXCEEDED"}]}}`, ErrQuota},
 	}
