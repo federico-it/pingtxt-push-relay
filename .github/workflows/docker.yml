@@ -1,8 +1,9 @@
 name: docker
 
+# Only release tags: Coolify builds the running service from the Dockerfile
+# on main, and pull requests already build and start the image in ci.yml.
 on:
   push:
-    branches: [main]
     tags: ["v*"]
 
 permissions:
@@ -33,14 +34,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # main pushes :main; a v1.2.3 tag pushes :1.2.3 and :latest.
+      # A v1.2.3 tag pushes :1.2.3 and :latest.
       - id: meta
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/pingtxt-push-relay
           flavor: latest=auto
           tags: |
-            type=ref,event=branch
             type=semver,pattern={{version}}
       - id: build
         uses: docker/build-push-action@v7
