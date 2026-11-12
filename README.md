@@ -114,8 +114,8 @@ RELAY_SECRET=$(openssl rand -base64 48) go run ./cmd/pingtxt-push-relay
 docker build -t pingtxt-push-relay .
 ```
 
-Images: `ghcr.io/federico-it/pingtxt-push-relay:main` from main,
-`:X.Y.Z` and `:latest` from `vX.Y.Z` tags, multi-arch (amd64, arm64), signed
+Images: `ghcr.io/federico-it/pingtxt-push-relay:X.Y.Z` and `:latest` from
+`vX.Y.Z` tags, multi-arch (amd64, arm64), signed
 with cosign (keyless).
 
 ## Contributing and security

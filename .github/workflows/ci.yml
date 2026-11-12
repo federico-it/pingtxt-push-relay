@@ -1,9 +1,14 @@
 name: ci
 
+# Only pull requests: main accepts changes only through a pull request whose
+# checks passed, so a second run on main would test the same code again.
 on:
-  push:
-    branches: [main]
   pull_request:
+
+# A new push to a pull request cancels the run for the previous one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
