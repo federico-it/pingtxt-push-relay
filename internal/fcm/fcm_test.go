@@ -131,6 +131,38 @@ func TestSendAndTokenCache(t *testing.T) {
 	if aps["sound"] != "default" || aps["thread-id"] != "m-1" || aps["category"] != "MONITOR_DOWN" {
 		t.Fatalf("aps %v", aps)
 	}
+	alert := aps["alert"].(map[string]any)
+	if alert["title"] != "api down" || alert["body"] != "timeout" {
+		t.Fatalf("alert %v", alert)
+	}
+	// Data only for Android: no notification part, the app shows it.
+	if msg["notification"] != nil {
+		t.Fatalf("notification %v", msg["notification"])
+	}
+	if d := msg["data"].(map[string]any); d["monitor_id"] != "1" || len(d) != 1 {
+		t.Fatalf("data %v", d)
+	}
+	android := msg["android"].(map[string]any)
+	if android["priority"] != "HIGH" || android["collapse_key"] != "m-1" || android["ttl"] != "3600s" || android["notification"] != nil {
+		t.Fatalf("android %v", android)
+	}
+	ad := android["data"].(map[string]any)
+	if ad["monitor_id"] != "1" || ad["title"] != "api down" || ad["body"] != "timeout" ||
+		ad["category"] != "MONITOR_DOWN" || ad["thread_id"] != "m-1" || ad["silent"] != nil {
+		t.Fatalf("android data %v", ad)
+	}
+
+	// Normal priority, silent, no body or category.
+	low := Message{Token: "dev", Title: "api up", Silent: true}
+	if err := c.Send(ctx, low); err != nil {
+		t.Fatal(err)
+	}
+	android = f.last.Load().(map[string]any)["message"].(map[string]any)["android"].(map[string]any)
+	ad = android["data"].(map[string]any)
+	if android["priority"] != "NORMAL" || android["ttl"] != nil || android["collapse_key"] != nil ||
+		ad["title"] != "api up" || ad["silent"] != "true" || ad["body"] != nil || ad["category"] != nil {
+		t.Fatalf("android %v", android)
+	}
 
 	// Expired token: fetched again.
 	c.now = func() time.Time { return time.Now().Add(58 * time.Minute) }

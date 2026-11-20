@@ -68,6 +68,9 @@ phones enrolled with the old one must enroll again.
 {"hub_id": "PrBlwRm8tbClvg8f5PEy4w", "fcm_token": "<Messaging.messaging().fcmToken>"}
 ```
 
+The same call for the iOS and the Android app: `fcm_token` is the FCM
+registration token of either, from the relay's Firebase project.
+
 `201 {"device": "prd_AeYWsf5y…"}` · `400 invalid_hub | invalid_token` ·
 `403 hub_revoked` · `429` per-IP limit.
 
@@ -106,6 +109,18 @@ handle for the same input; any of them works.
 | `ttl` | FCM default (4 weeks) | Seconds APNs keeps trying when the phone is offline (0 to 2419200). An outage alert is stale after ~1 h. |
 | `silent` | `false` | No sound |
 | `data` | | String map for the app (deep links), max 16 keys and 2048 bytes. Keys `from`, `message_type`, `notification`, `google*`, `gcm*` are reserved. |
+
+Every message goes out without an FCM `notification` part:
+
+- **iOS** gets an APNs alert (`aps.alert`, `sound`, `thread-id`, `category`,
+  priority and expiration headers), as before.
+- **Android** gets a data-only message, so the app builds the notification
+  itself (channel, action buttons) also in the background. `android.data` is
+  the hub's `data` plus `title`, `body`, `category`, `thread_id` and
+  `silent: "true"` when set (the relay's values win over hub keys with the
+  same names). `priority: high` is FCM `HIGH` (wakes the phone from Doze),
+  `normal` is `NORMAL`; `collapse_id` is the `collapse_key`, `ttl` the
+  Android TTL.
 
 Answer `200` with one result per device, in the order sent:
 
@@ -263,6 +278,15 @@ not stored there. Admins who do not want that can turn the feature off.
    monitor.
 
 The FCM token never goes to the hub, only the handle.
+
+## App side (pingtxt-android)
+
+Same Firebase project (`google-services.json` of the relay's project), same
+enrollment (`POST /v1/devices` with `hub_id` and the FCM token) and the same
+hub routes as iOS. Notifications arrive in
+`FirebaseMessagingService.onMessageReceived` also in the background: read
+`data.title`, `data.body`, `data.category` (action buttons), `data.type` /
+`data.monitor_id` and post the notification.
 
 ## Security notes
 

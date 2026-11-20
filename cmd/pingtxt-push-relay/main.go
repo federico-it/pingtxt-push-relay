@@ -1,5 +1,5 @@
 // Command pingtxt-push-relay forwards notifications from self-hosted pingtxt
-// hubs to the pingtxt iOS app through Firebase Cloud Messaging.
+// hubs to the pingtxt iOS and Android apps through Firebase Cloud Messaging.
 //
 //	pingtxt-push-relay              run the server (settings from env, see README)
 //	pingtxt-push-relay healthcheck  exit 0 if the local server answers /healthz

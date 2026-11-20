@@ -1,8 +1,8 @@
 # pingtxt-push-relay
 
-Push notifications for the pingtxt iOS app, for every self-hosted pingtxt hub.
+Push notifications for the pingtxt iOS and Android apps, for every self-hosted pingtxt hub.
 
-An iOS app can receive notifications only from a server that holds the app's
+A mobile app can receive notifications only from a server that holds the app's
 Firebase / APNs credentials. Those credentials cannot ship inside every
 self-hosted [pingtxt](https://github.com/federico-it/pingtxt) hub, so hubs
 send their notifications to this small relay, which forwards them to Firebase
@@ -10,7 +10,7 @@ Cloud Messaging (HTTP v1 API), which delivers them through APNs.
 
 ```
 pingtxt hub ──HTTPS──▶ push relay ──FCM HTTP v1──▶ Firebase ──APNs──▶ iPhone
-  (hub token)            (service account)
+  (hub token)            (service account)               └──FCM───▶ Android
 ```
 
 - **Small and fast**: one static Go binary, standard library only, on a
@@ -19,7 +19,7 @@ pingtxt hub ──HTTPS──▶ push relay ──FCM HTTP v1──▶ Firebase 
   (`RELAY_SECRET`), so the relay stores nothing and scales by adding copies.
 - **Stores no monitor data**: messages are forwarded and forgotten. Logs hold
   hub ids and counts, never titles, bodies, tokens or IP addresses.
-- **Hubs push only to their own phones**: the iOS app enrolls its FCM token for
+- **Hubs push only to their own phones**: the app enrolls its FCM token for
   one hub and gets back a sealed *device handle*; a hub can open only handles
   made for it, and never sees the FCM token itself.
 - **Live Activities**: the hub can start (iOS 17.2+), update and end the
@@ -28,6 +28,9 @@ pingtxt hub ──HTTPS──▶ push relay ──FCM HTTP v1──▶ Firebase 
 - **Action buttons**: the hub can set the notification's category
   (`aps.category`), so the app shows buttons such as "check now" or "mute for
   1 hour" on it.
+- **Android**: the same messages reach the Android app as data-only FCM
+  messages (text and category in the data), so the app shows them with its
+  buttons also in the background.
 - **Rate limits** per hub, per phone and per IP (registration, enrollment).
 - Runs as uid 10001, no shell, read-only root filesystem friendly,
   `HEALTHCHECK` built in.
@@ -96,6 +99,9 @@ Rate limits are in memory, per process. `0` turns a limit off.
    API Admin* role (`roles/firebasecloudmessaging.admin`) if you make a
    dedicated service account.
 4. Put `GoogleService-Info.plist` of the same project in the iOS app.
+5. Add the Android app (package `me.fede.pingtxt`) to the same project and put
+   its `google-services.json` in the Android app. Nothing changes on the relay:
+   one service account sends to both apps.
 
 ## Commands
 
