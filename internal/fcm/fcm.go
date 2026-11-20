@@ -300,15 +300,63 @@ func (c *Client) payload(m Message) map[string]any {
 	if m.TTL > 0 {
 		headers["apns-expiration"] = strconv.FormatInt(c.now().Add(m.TTL).Unix(), 10)
 	}
+	// No top-level notification: on Android it makes FCM show the
+	// notification itself while the app is in the background, without the
+	// app's action buttons. iOS gets the same alert from aps above.
 	msg := map[string]any{
-		"token":        m.Token,
-		"notification": map[string]string{"title": m.Title, "body": m.Body},
-		"apns":         map[string]any{"headers": headers, "payload": map[string]any{"aps": aps}},
+		"token":   m.Token,
+		"apns":    map[string]any{"headers": headers, "payload": map[string]any{"aps": aps}},
+		"android": c.androidConfig(m),
 	}
 	if len(m.Data) > 0 {
 		msg["data"] = m.Data
 	}
 	return msg
+}
+
+// Keys the relay adds to the data of an Android message, which has no
+// notification part: the app builds the notification (channel, buttons).
+const (
+	AndroidTitle    = "title"
+	AndroidBody     = "body"
+	AndroidCategory = "category"
+	AndroidThreadID = "thread_id"
+	AndroidSilent   = "silent"
+)
+
+// androidConfig makes the Android side of a message data only. On Android
+// FCM delivers android.data instead of the top-level data, so it holds the
+// hub's data plus the text and the category (aps.category on iOS). High
+// priority wakes the phone from Doze, for down alerts.
+func (c *Client) androidConfig(m Message) map[string]any {
+	data := make(map[string]string, len(m.Data)+5)
+	for k, v := range m.Data {
+		data[k] = v
+	}
+	data[AndroidTitle] = m.Title
+	if m.Body != "" {
+		data[AndroidBody] = m.Body
+	}
+	if m.Category != "" {
+		data[AndroidCategory] = m.Category
+	}
+	if m.ThreadID != "" {
+		data[AndroidThreadID] = m.ThreadID
+	}
+	if m.Silent {
+		data[AndroidSilent] = "true"
+	}
+	cfg := map[string]any{"priority": "NORMAL", "data": data}
+	if m.HighPrio {
+		cfg["priority"] = "HIGH"
+	}
+	if m.CollapseID != "" {
+		cfg["collapse_key"] = m.CollapseID
+	}
+	if m.TTL > 0 {
+		cfg["ttl"] = strconv.FormatInt(int64(m.TTL/time.Second), 10) + "s"
+	}
+	return cfg
 }
 
 // liveActivityPayload follows
